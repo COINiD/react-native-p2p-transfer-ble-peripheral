@@ -37,9 +37,13 @@ RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(start:(nonnull RCTResponseSenderBlock)callback)
 {
-    [_callbacks setObject:callback forKey:@"startCB"];
+  if(_manager) {
+    callback(@[]);
+    return ;
+  }
 
-    _manager = [[CBPeripheralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()];
+  [_callbacks setObject:callback forKey:@"startCB"];
+  _manager = [[CBPeripheralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()];
 }
 
 RCT_EXPORT_METHOD(publishService:(NSString *)serviceUUID callback:(nonnull RCTResponseSenderBlock)callback)
@@ -106,6 +110,7 @@ RCT_EXPORT_METHOD(addCharacteristic:(NSString *)serviceUUID characteristicUUID: 
 RCT_EXPORT_METHOD(updateValue: (NSString *)value centralUUID:(NSString *)centralUUID serviceUUID:(NSString *)serviceUUID characteristicUUID:(NSString *)characteristicUUID callback:(nonnull RCTResponseSenderBlock)callback) {
   CBMutableCharacteristic *characteristic = [self findCharacteristic: serviceUUID characteristicUUID: characteristicUUID];
   CBCentral *central = [self findCentral: centralUUID];
+  _finalBytes = nil;
 
   if(characteristic) {
     [self sendValueInChunks:
