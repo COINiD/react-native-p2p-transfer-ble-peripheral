@@ -18,6 +18,9 @@
     NSMutableArray *_pausedTransfers;
     NSMutableData *_receivedData;
     NSNumber *_finalBytes;
+
+    NSString *_sendCharacteristicUUID;
+    NSString *_receiveCharacteristicUUID;
 }
 
 

@@ -67,13 +67,15 @@ class BLEPeripheral extends EventEmitter {
 
 
 	sendData = (value, filter) => {
-		const {serviceUUID, localName} = filter;
-		const characteristicUUID = '2222'; // Special characteristic for sending data. Central subscribes to this.
-
 		return new Promise((resolve, reject) => {
+      const {serviceUUID, localName} = filter;
+      const characteristicUUID = '2222'; // Special characteristic for sending data. Central subscribes to this.
+
 			if(!serviceUUID) {
 				return reject("serviceUUID required filter");
 			}
+
+      blePeripheralModule.setSendCharacteristic(characteristicUUID);
 
       blePeripheralEmitter.removeAllListeners('didSubscribeToCharacteristic');
       blePeripheralEmitter.addListener('didSubscribeToCharacteristic', (subscriber) => {
@@ -109,13 +111,15 @@ class BLEPeripheral extends EventEmitter {
   }
 
   receiveData = (filter) => {
-    const {serviceUUID, localName} = filter;
-    const characteristicUUID = '3333'; // Special characteristic for receiving data. Central starts sending once Central subscribes.
-
     return new Promise((resolve, reject) => {
+      const {serviceUUID, localName} = filter;
+      const characteristicUUID = '3333'; // Special characteristic for receiving data. Central starts sending once Central subscribes.
+
       if(!serviceUUID) {
         return reject("serviceUUID required filter");
       }
+
+      blePeripheralModule.setReceiveCharacteristic(characteristicUUID);
 
       console.log('add listeners');
 

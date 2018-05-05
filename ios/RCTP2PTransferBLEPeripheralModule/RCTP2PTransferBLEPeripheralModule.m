@@ -16,21 +16,21 @@ RCT_EXPORT_MODULE();
 
 - (instancetype)init
 {
-    if (self = [super init]) {
-      NSLog(@"RCTP2PTransferBLEPeripheralModule created");
-      _callbacks = [NSMutableDictionary dictionary];
-      _addedServices = [NSMutableDictionary dictionary];
-      _publishedServices = [NSMutableDictionary dictionary];
-      _pausedTransfers = [NSMutableArray new];
-      _subscribedCentrals = [NSMutableDictionary dictionary];
-    }
-    
-    return self;
+  if (self = [super init]) {
+    NSLog(@"RCTP2PTransferBLEPeripheralModule created");
+    _callbacks = [NSMutableDictionary dictionary];
+    _addedServices = [NSMutableDictionary dictionary];
+    _publishedServices = [NSMutableDictionary dictionary];
+    _pausedTransfers = [NSMutableArray new];
+    _subscribedCentrals = [NSMutableDictionary dictionary];
+  }
+  
+  return self;
 }
 
 +(BOOL)requiresMainQueueSetup
 {
-    return YES;
+  return YES;
 }
 
 /* Exported Methods */
@@ -109,20 +109,31 @@ RCT_EXPORT_METHOD(addCharacteristic:(NSString *)serviceUUID characteristicUUID: 
 
 RCT_EXPORT_METHOD(updateValue: (NSString *)value centralUUID:(NSString *)centralUUID serviceUUID:(NSString *)serviceUUID characteristicUUID:(NSString *)characteristicUUID callback:(nonnull RCTResponseSenderBlock)callback) {
   CBMutableCharacteristic *characteristic = [self findCharacteristic: serviceUUID characteristicUUID: characteristicUUID];
-  CBCentral *central = [self findCentral: centralUUID];
-  _finalBytes = nil;
 
-  if(characteristic) {
-    [self sendValueInChunks:
-      [value dataUsingEncoding:NSUTF8StringEncoding]
-      forCharacteristic:characteristic
-      onSubscribedCentrals:central ? @[central] : nil
-      progress:0
-      callback: callback
-    ];
+  if(!characteristic || ![_sendCharacteristicUUID isEqualToString:characteristic.UUID.UUIDString]) {
+    return ;
   }
+
+  CBCentral *central = [self findCentral: centralUUID];
+
+  [self sendValueInChunks:
+    [value dataUsingEncoding:NSUTF8StringEncoding]
+    forCharacteristic:characteristic
+    onSubscribedCentrals:central ? @[central] : nil
+    progress:0
+    callback: callback
+  ];
 }
 
+RCT_EXPORT_METHOD(setSendCharacteristic:(NSString *)characteristicUUID)
+{
+  _sendCharacteristicUUID = characteristicUUID;
+}
+
+RCT_EXPORT_METHOD(setReceiveCharacteristic:(NSString *)characteristicUUID)
+{
+  _receiveCharacteristicUUID = characteristicUUID;
+}
 
 - (NSData *)getDataChunk:(NSData *)string size:(NSInteger)size num:(NSInteger)num {
   NSInteger start = size * num;
@@ -294,46 +305,51 @@ RCT_EXPORT_METHOD(stopAdvertising: (nonnull RCTResponseSenderBlock)callback)
 - (void)peripheralManager:(CBPeripheralManager *)manager didReceiveWriteRequests:(NSArray<CBATTRequest *> *)requests {
   [manager respondToRequest:[requests firstObject] withResult:CBATTErrorSuccess];
 
-  // Special if received write request once from central
-  RCTResponseSenderBlock finishedSendCallback = [_callbacks objectForKey:@"didFinishSendCB"];
-  if(finishedSendCallback) {  
-    [_callbacks removeObjectForKey:@"didFinishSendCB"];
-    [self sendEventWithName:@"sendingDone" body:@"finished"];
-    finishedSendCallback(@[]);
-    return ;
-  }
-
   for (CBATTRequest *request in requests) {
-    NSMutableDictionary *retObject = [NSMutableDictionary new];
-    retObject[@"centralUUID"] = request.central.identifier.UUIDString;
-    retObject[@"serviceUUID"] = request.characteristic.service.UUID.UUIDString;
-    retObject[@"characteristicUUID"] = request.characteristic.UUID.UUIDString;
 
-    if(_finalBytes == nil) {
-      UInt32 size;
-      [request.value getBytes:&size length:sizeof(size)];
-
-      _finalBytes = [[NSNumber alloc] initWithUnsignedInteger:size];
-      _receivedData = [[NSMutableData alloc] initWithLength:0];
-
-      [self sendEventWithName:@"transferStarted" body:retObject];
-    }
-    else {
-      [_receivedData appendData:request.value];
+    // if write is made on sendcharacteristic (= means it is a confirmation that the send is completed)
+    if(_sendCharacteristicUUID && [_sendCharacteristicUUID isEqualToString:request.characteristic.UUID.UUIDString]) {
+      RCTResponseSenderBlock finishedSendCallback = [_callbacks objectForKey:@"didFinishSendCB"];
+      if(finishedSendCallback) {  
+        [_callbacks removeObjectForKey:@"didFinishSendCB"];
+        [self sendEventWithName:@"sendingDone" body:@"finished"];
+        finishedSendCallback(@[]);
+      }
     }
 
-    NSNumber *receivedBytes = [[NSNumber alloc] initWithUnsignedInteger:[_receivedData length]];
-    retObject[@"receivedBytes"] = receivedBytes;
-    retObject[@"finalBytes"] = _finalBytes;
-    [self sendEventWithName:@"transferProgress" body:retObject];
+    // if write is made on receivecharacteristic (= means it is a write we are waiting for)
+    if(_receiveCharacteristicUUID && [_receiveCharacteristicUUID isEqualToString:request.characteristic.UUID.UUIDString]) {
+      NSMutableDictionary *retObject = [NSMutableDictionary new];
+      retObject[@"centralUUID"] = request.central.identifier.UUIDString;
+      retObject[@"serviceUUID"] = request.characteristic.service.UUID.UUIDString;
+      retObject[@"characteristicUUID"] = request.characteristic.UUID.UUIDString;
 
-    if([receivedBytes isEqualToNumber:_finalBytes]) {
-      NSString *stringFromData = [[NSString alloc] initWithData:_receivedData encoding:NSUTF8StringEncoding];
-      retObject[@"value"] = stringFromData;
-      [self sendEventWithName:@"transferDone" body:retObject];
+      if(_finalBytes == nil) {
+        UInt32 size;
+        [request.value getBytes:&size length:sizeof(size)];
 
-      _finalBytes = nil;
-      _receivedData = nil;
+        _finalBytes = [[NSNumber alloc] initWithUnsignedInteger:size];
+        _receivedData = [[NSMutableData alloc] initWithLength:0];
+
+        [self sendEventWithName:@"transferStarted" body:retObject];
+      }
+      else {
+        [_receivedData appendData:request.value];
+      }
+
+      NSNumber *receivedBytes = [[NSNumber alloc] initWithUnsignedInteger:[_receivedData length]];
+      retObject[@"receivedBytes"] = receivedBytes;
+      retObject[@"finalBytes"] = _finalBytes;
+      [self sendEventWithName:@"transferProgress" body:retObject];
+
+      if([receivedBytes isEqualToNumber:_finalBytes]) {
+        NSString *stringFromData = [[NSString alloc] initWithData:_receivedData encoding:NSUTF8StringEncoding];
+        retObject[@"value"] = stringFromData;
+        [self sendEventWithName:@"transferDone" body:retObject];
+
+        _finalBytes = nil;
+        _receivedData = nil;
+      }
     }
   }
 }
