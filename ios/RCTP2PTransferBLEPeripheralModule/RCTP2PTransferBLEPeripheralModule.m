@@ -152,7 +152,7 @@ RCT_EXPORT_METHOD(setReceiveCharacteristic:(NSString *)characteristicUUID)
 - (void)sendValueInChunks:(NSData *)value forCharacteristic:(CBMutableCharacteristic *)forCharacteristic onSubscribedCentrals:(NSArray*)onSubscribedCentrals progress:(NSInteger)progress callback:(nonnull RCTResponseSenderBlock)callback{
   UInt32 size = [value length];
   NSData *startPayload = [NSData dataWithBytes:&size length:sizeof(size)];
-  NSInteger chunkSize = [[onSubscribedCentrals firstObject] maximumUpdateValueLength]; // dela upp nsdatan istället...
+  NSInteger chunkSize = [[onSubscribedCentrals firstObject] maximumUpdateValueLength]; // checks first central what its maximumupdatevalue is
   
   for(NSInteger i = progress; 1; i++) {
       NSData *chunk = i ? [self getDataChunk: value size: chunkSize num: i-1] : startPayload;
