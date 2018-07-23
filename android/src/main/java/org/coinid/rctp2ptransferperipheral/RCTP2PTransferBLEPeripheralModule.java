@@ -40,9 +40,10 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.os.ParcelUuid;
-import java.nio.charset.Charset;
 import android.support.annotation.Nullable;
+import android.os.ParcelUuid;
+
+import android.util.Log;
 
 import java.util.Map;
 import java.util.HashMap;
@@ -50,9 +51,10 @@ import java.util.UUID;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import android.util.Log;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.Charset;
 
 
 public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModule {
@@ -74,6 +76,10 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   private Callback mDidFinishSendCB;
 
   private UUID DESCRIPTOR_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+
+  private int mFinalBytes;
+  private int mReceivedBytes;
+  private ByteBuffer mReceivedData;
 
 
   public RCTP2PTransferBLEPeripheralModule(ReactApplicationContext reactContext) {
@@ -106,6 +112,9 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
     this.mConnectionMtu = 23;
     this.mLeAdvertiser = this.mAdapter.getBluetoothLeAdvertiser();
     this.mGattServer = this.mManager.openGattServer(this.mContext, this.mGattServerCallback);
+    this.mFinalBytes = 0;
+    this.mReceivedData = null;
+    this.mReceivedBytes = 0;
 
     return 0;
   }
@@ -223,15 +232,13 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
     BluetoothGattCharacteristic gattCharacteristic = new BluetoothGattCharacteristic(
       UUID.fromString(characteristicUUID),
-      (android.bluetooth.BluetoothGattCharacteristic.PROPERTY_READ | android.bluetooth.BluetoothGattCharacteristic.PROPERTY_WRITE | android.bluetooth.BluetoothGattCharacteristic.PROPERTY_NOTIFY),
-      (android.bluetooth.BluetoothGattCharacteristic.PERMISSION_READ | android.bluetooth.BluetoothGattCharacteristic.PERMISSION_WRITE)
+      (BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_NOTIFY),
+      (BluetoothGattCharacteristic.PERMISSION_READ | BluetoothGattCharacteristic.PERMISSION_WRITE)
     );
 
-    // In order to support subsriptions this is needed
-    BluetoothGattDescriptor gattCharacteristicConfig = new BluetoothGattDescriptor(DESCRIPTOR_CONFIG_UUID, (android.bluetooth.BluetoothGattCharacteristic.PERMISSION_READ | android.bluetooth.BluetoothGattCharacteristic.PERMISSION_WRITE));
+    // In order to support subsriptions this descriptor is needed
+    BluetoothGattDescriptor gattCharacteristicConfig = new BluetoothGattDescriptor(DESCRIPTOR_CONFIG_UUID, (BluetoothGattCharacteristic.PERMISSION_READ | BluetoothGattCharacteristic.PERMISSION_WRITE));
     gattCharacteristic.addDescriptor(gattCharacteristicConfig);
-
-    gattCharacteristic.setValue(new String("this is read 1").getBytes());
 
     this.mGattCharacteristic = gattCharacteristic;
 
@@ -241,8 +248,7 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
   @ReactMethod
   void updateValue(String value, String centralUUID, String serviceUUID, String characteristicUUID, Callback callback) {
-    //Charset.forName("UTF-8")
-    sendValueInChunks(value.getBytes(), characteristicUUID, centralUUID, 0, callback);
+    sendValueInChunks(value.getBytes(Charset.forName("UTF-8")), characteristicUUID, centralUUID, 0, callback);
   }
 
   void sendValueInChunks(byte[] value, String characteristicUUID, String centralUUID, int progress, Callback callback) {
@@ -373,6 +379,62 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
           mDidFinishSendCB.invoke();
           mDidFinishSendCB = null;
         }
+      }
+
+      // if write is made on receivecharacteristic (= means it is a write we are waiting for)
+      if(mReceiveCharacteristicUUID != null && mReceiveCharacteristicUUID.equals(characteristic.getUuid().toString()) ) {
+        String centralUUID = device.toString();
+        String serviceUUID = characteristic.getService().getUuid().toString();
+        String characteristicUUID = characteristic.getUuid().toString();
+
+        if(mFinalBytes == 0) {
+          mFinalBytes = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN).getInt();
+
+          WritableMap retObject = Arguments.createMap();
+          retObject.putString("centralUUID", centralUUID);
+          retObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
+          retObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+          retObject.putInt("mFinalBytes", mFinalBytes);
+
+          sendEvent("transferStarted", retObject);
+
+          mReceivedData = ByteBuffer.allocate(mFinalBytes);
+        }
+        else {
+          mReceivedData.put(value);
+          mReceivedBytes += value.length;
+        }
+
+        WritableMap progressRetObject = Arguments.createMap();
+        progressRetObject.putString("centralUUID", centralUUID);
+        progressRetObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
+        progressRetObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+        progressRetObject.putInt("receivedBytes", mReceivedBytes);
+        progressRetObject.putInt("finalBytes", mFinalBytes);
+
+        sendEvent("transferProgress", progressRetObject);
+
+        if(mReceivedBytes == mFinalBytes) {
+          String stringFromData = new String( mReceivedData.array(), Charset.forName("UTF-8") );
+
+          WritableMap doneRetObject = Arguments.createMap();
+          doneRetObject.putString("centralUUID", centralUUID);
+          doneRetObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
+          doneRetObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+          doneRetObject.putInt("receivedBytes", mReceivedBytes);
+          doneRetObject.putInt("finalBytes", mFinalBytes);
+          doneRetObject.putString("value", stringFromData);
+
+          sendEvent("transferDone", doneRetObject);
+
+          mFinalBytes = 0;
+          mReceivedData = null;
+          mReceivedBytes = 0;
+        }
+      }
+
+      if (responseNeeded) {
+        mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null);
       }
     }
 

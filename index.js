@@ -13,7 +13,10 @@ class BLEPeripheral extends EventEmitter {
   publish = (serviceUUID, characteristicUUID, localName) => {
     return new Promise((resolve, reject) => {
       blePeripheralModule.start(() => {
+        console.log("start...");
+
         this.unpublish().then(() => {
+          console.log("unpublish...");
           blePeripheralModule.addService(serviceUUID, (data) => {
             this.addedServiceUUID = serviceUUID;
             console.log("addService...", data);
@@ -49,6 +52,8 @@ class BLEPeripheral extends EventEmitter {
   unpublish = () => {
     return new Promise((resolve, reject) => { 
       this.stopAdvertising().then(() => {
+        console.log("stopping advertising...");
+
         if(this.addedServiceUUID === undefined) {
           console.log('already unpublished');
           return resolve();
