@@ -6,9 +6,9 @@ const blePeripheralModule = NativeModules.P2PTransferBLEPeripheralModule;
 const blePeripheralEmitter = new NativeEventEmitter(blePeripheralModule);
 
 class BLEPeripheral extends EventEmitter {
-	constructor() {
-		super();
-	}
+  constructor() {
+    super();
+  }
 
   publish = (serviceUUID, characteristicUUID, localName) => {
     return new Promise((resolve, reject) => {
@@ -71,22 +71,23 @@ class BLEPeripheral extends EventEmitter {
   }
 
 
-	sendData = (value, filter) => {
-		return new Promise((resolve, reject) => {
+  sendData = (value, filter) => {
+    return new Promise((resolve, reject) => {
       const {serviceUUID, localName} = filter;
       const characteristicUUID = '2222'; // Special characteristic for sending data. Central subscribes to this.
 
-			if(!serviceUUID) {
-				return reject("serviceUUID required filter");
-			}
+      if(!serviceUUID) {
+        return reject("serviceUUID required filter");
+      }
 
       blePeripheralModule.setSendCharacteristic(characteristicUUID);
 
       blePeripheralEmitter.removeAllListeners('didSubscribeToCharacteristic');
       blePeripheralEmitter.addListener('didSubscribeToCharacteristic', (subscriber) => {
-        console.log('didSubscribeToCharacteristic', subscriber);
+        console.log('didSubscribeToCharacteristic', subscriber, serviceUUID, characteristicUUID);
 
-        if(subscriber.serviceUUID !== serviceUUID || subscriber.characteristicUUID !== characteristicUUID) {
+        if(subscriber.serviceUUID.toLowerCase() !== serviceUUID.toLowerCase() ||
+           subscriber.characteristicUUID.toLowerCase() !== characteristicUUID.toLowerCase()) {
           return ;
         }
 
@@ -112,7 +113,7 @@ class BLEPeripheral extends EventEmitter {
       });
 
       this.publish(serviceUUID, characteristicUUID, localName).then(() => {});
-	 });
+   });
   }
 
   receiveData = (filter) => {
