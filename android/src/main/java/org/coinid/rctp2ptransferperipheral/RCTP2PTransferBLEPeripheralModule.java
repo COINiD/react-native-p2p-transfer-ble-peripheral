@@ -389,6 +389,7 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
         if(mFinalBytes == 0) {
           mFinalBytes = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN).getInt();
+          mReceivedData = ByteBuffer.allocate(mFinalBytes);
 
           WritableMap retObject = Arguments.createMap();
           retObject.putString("centralUUID", centralUUID);
@@ -397,8 +398,6 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
           retObject.putInt("mFinalBytes", mFinalBytes);
 
           sendEvent("transferStarted", retObject);
-
-          mReceivedData = ByteBuffer.allocate(mFinalBytes);
         }
         else {
           mReceivedData.put(value);
