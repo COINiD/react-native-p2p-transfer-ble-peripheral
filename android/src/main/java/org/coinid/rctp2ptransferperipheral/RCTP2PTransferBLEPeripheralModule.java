@@ -86,10 +86,7 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   public RCTP2PTransferBLEPeripheralModule(ReactApplicationContext reactContext) {
     super(reactContext);
     this.mContext = reactContext;
-
-    if(this.init() == 0) {
-      this.setupBLECallbacks();
-    }
+    this.init();
   }
 
   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
@@ -329,6 +326,10 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
     if (false == this.mAdapter.isMultipleAdvertisementSupported()){
       return -5;
+    }
+
+    if(this.mGattServerCallback == null) {
+      this.setupBLECallbacks();
     }
 
     this.mConnectionMtu = 23;
