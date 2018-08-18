@@ -12,8 +12,11 @@ class BLEPeripheral extends EventEmitter {
 
   publish = (serviceUUID, characteristicUUID, localName) => {
     return new Promise((resolve, reject) => {
-      blePeripheralModule.start(() => {
-        console.log("start...");
+      blePeripheralModule.start((started) => {
+        if(!started) {
+          console.log("could not start bluetooth");
+          return reject("could not start bluetooth");
+        }
 
         this.unpublish().then(() => {
           console.log("unpublish...");
@@ -52,6 +55,7 @@ class BLEPeripheral extends EventEmitter {
   unpublish = () => {
     return new Promise((resolve, reject) => { 
       this.stopAdvertising().then(() => {
+
         console.log("stopping advertising...");
 
         if(this.addedServiceUUID === undefined) {
@@ -103,7 +107,8 @@ class BLEPeripheral extends EventEmitter {
 
           this.emit('sendingStarted');
           blePeripheralModule.updateValue(value, subscriber.centralUUID, serviceUUID, characteristicUUID, () => {
-            this.unpublish().then(() => {
+            this.unpublish()
+            .then(() => {
 
               this.emit('sendingDone');
               return resolve();
@@ -112,7 +117,9 @@ class BLEPeripheral extends EventEmitter {
         });
       });
 
-      this.publish(serviceUUID, characteristicUUID, localName).then(() => {});
+      this.publish(serviceUUID, characteristicUUID, localName)
+      .then(() => {})
+      .catch((err) => { reject(err); });
    });
   }
 
@@ -156,7 +163,9 @@ class BLEPeripheral extends EventEmitter {
         });
       });
 
-      this.publish(serviceUUID, characteristicUUID, localName).then(() => {});
+      this.publish(serviceUUID, characteristicUUID, localName)
+      .then(() => {})
+      .catch((err) => { reject(err); });
     });
   }
 }

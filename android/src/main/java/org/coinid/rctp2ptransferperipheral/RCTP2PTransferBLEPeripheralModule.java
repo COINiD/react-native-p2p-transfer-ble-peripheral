@@ -1,5 +1,7 @@
 package org.coinid.rctp2ptransferperipheral;
 
+import android.annotation.TargetApi;
+
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -11,14 +13,6 @@ import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothGattServer;
 import android.bluetooth.BluetoothGattServerCallback;
-
-/* Scanning (Central) */
-import android.bluetooth.le.ScanRecord;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanFilter;
-import android.bluetooth.le.ScanResult;
-import android.bluetooth.le.ScanSettings;
 
 /* Advertising (Peripheral) */
 import android.bluetooth.le.AdvertiseCallback;
@@ -56,6 +50,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.Charset;
 
+import android.os.Build;
+
 
 public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModule {
 
@@ -64,7 +60,7 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   private BluetoothManager mManager;
   private BluetoothAdapter mAdapter;
   private BluetoothLeAdvertiser mLeAdvertiser;
-  private BluetoothGattServer mGattServer;
+  public BluetoothGattServer mGattServer;
   private BluetoothGattService mGattService;
   private BluetoothGattCharacteristic mGattCharacteristic;
   private BluetoothDevice mCentral;
@@ -81,32 +77,258 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   private int mReceivedBytes;
   private ByteBuffer mReceivedData;
 
+  private BluetoothGattServerCallback mGattServerCallback;
+  private AdvertiseCallback mAdvertiseCallback;
+  
+/*
+*/
 
   public RCTP2PTransferBLEPeripheralModule(ReactApplicationContext reactContext) {
     super(reactContext);
     this.mContext = reactContext;
-    this.init();
+
+    if(this.init() == 0) {
+      this.setupBLECallbacks();
+    }
+  }
+
+  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  private void setupBLECallbacks() {
+    this.mAdvertiseCallback = new AdvertiseCallback() {
+      @Override
+      public void onStartSuccess(AdvertiseSettings settingsInEffect) {
+        super.onStartSuccess(settingsInEffect);
+      }
+   
+      @Override
+      public void onStartFailure(int errorCode) {
+        super.onStartFailure(errorCode);
+      }
+    };
+
+
+    this.mGattServerCallback = new BluetoothGattServerCallback() {
+      @Override
+      public void onConnectionStateChange(BluetoothDevice device, int status, int newState) {
+        Log.d("GattServer", "Our gatt server connection state changed, new state ");
+        Log.d("GattServer", Integer.toString(newState));
+        super.onConnectionStateChange(device, status, newState);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("name", "dooley-doo");
+        sendEvent("onConnectionStateChange", params);
+      }
+
+      @Override
+      public void onServiceAdded(int status, BluetoothGattService service) {
+        Log.d("GattServer", "Our gatt server service was added.");
+        super.onServiceAdded(status, service);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("name", "dooley-doo");
+        sendEvent("onServiceAdded", params);
+      }
+
+      @Override
+      public void onMtuChanged(BluetoothDevice device, int mtu) {
+        super.onMtuChanged(device, mtu);
+
+        WritableMap params = Arguments.createMap();
+        params.putInt("mtu", mtu);
+        sendEvent("onMtuChanged", params);
+
+        mConnectionMtu = mtu;
+      }
+
+      @Override
+      public void onCharacteristicReadRequest(BluetoothDevice device, int requestId, int offset, BluetoothGattCharacteristic characteristic) {
+        Log.d("GattServer", "Our gatt characteristic was read.");
+        super.onCharacteristicReadRequest(device, requestId, offset, characteristic);
+        mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, characteristic.getValue());
+
+        WritableMap params = Arguments.createMap();
+        params.putString("name", "dooley-doo");
+        sendEvent("onCharacteristicReadRequest", params);
+      }
+
+      @Override
+      public void onCharacteristicWriteRequest(BluetoothDevice device, int requestId, BluetoothGattCharacteristic characteristic, boolean preparedWrite, boolean responseNeeded, int offset, byte[] value) {
+        super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("characteristic", mSendCharacteristicUUID);
+        sendEvent("onCharacteristicWriteRequest", params);
+
+        // if write is made on sendcharacteristic (= means it is a confirmation that the send is completed)
+        if(mSendCharacteristicUUID != null && mSendCharacteristicUUID.equals(characteristic.getUuid().toString()) ) {
+          if(mDidFinishSendCB != null) {
+            mDidFinishSendCB.invoke();
+            mDidFinishSendCB = null;
+          }
+        }
+
+        // if write is made on receivecharacteristic (= means it is a write we are waiting for)
+        if(mReceiveCharacteristicUUID != null && mReceiveCharacteristicUUID.equals(characteristic.getUuid().toString()) ) {
+          String centralUUID = device.toString();
+          String serviceUUID = characteristic.getService().getUuid().toString();
+          String characteristicUUID = characteristic.getUuid().toString();
+
+          if(mFinalBytes == 0) {
+            mFinalBytes = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN).getInt();
+            mReceivedData = ByteBuffer.allocate(mFinalBytes);
+
+            WritableMap retObject = Arguments.createMap();
+            retObject.putString("centralUUID", centralUUID);
+            retObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
+            retObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+            retObject.putInt("mFinalBytes", mFinalBytes);
+
+            sendEvent("transferStarted", retObject);
+          }
+          else {
+            mReceivedData.put(value);
+            mReceivedBytes += value.length;
+          }
+
+          WritableMap progressRetObject = Arguments.createMap();
+          progressRetObject.putString("centralUUID", centralUUID);
+          progressRetObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
+          progressRetObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+          progressRetObject.putInt("receivedBytes", mReceivedBytes);
+          progressRetObject.putInt("finalBytes", mFinalBytes);
+
+          sendEvent("transferProgress", progressRetObject);
+
+          if(mReceivedBytes == mFinalBytes) {
+            String stringFromData = new String( mReceivedData.array(), Charset.forName("UTF-8") );
+
+            WritableMap doneRetObject = Arguments.createMap();
+            doneRetObject.putString("centralUUID", centralUUID);
+            doneRetObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
+            doneRetObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+            doneRetObject.putInt("receivedBytes", mReceivedBytes);
+            doneRetObject.putInt("finalBytes", mFinalBytes);
+            doneRetObject.putString("value", stringFromData);
+
+            sendEvent("transferDone", doneRetObject);
+
+            mFinalBytes = 0;
+            mReceivedData = null;
+            mReceivedBytes = 0;
+          }
+        }
+
+        if (responseNeeded) {
+          mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null);
+        }
+      }
+
+      @Override
+      public void onNotificationSent(BluetoothDevice device, int status) {
+        Log.d("GattServer", "onNotificationSent");
+        super.onNotificationSent(device, status);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("name", "dooley-doo");
+        sendEvent("onNotificationSent", params);
+      }
+
+      @Override
+      public void onDescriptorReadRequest(BluetoothDevice device, int requestId, int offset, BluetoothGattDescriptor descriptor) {
+        Log.d("GattServer", "Our gatt server descriptor was read.");
+        super.onDescriptorReadRequest(device, requestId, offset, descriptor);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("name", "dooley-doo");
+        sendEvent("onDescriptorReadRequest", params);
+      }
+
+      @Override
+      public void onDescriptorWriteRequest(BluetoothDevice device, int requestId, BluetoothGattDescriptor descriptor, boolean preparedWrite, boolean responseNeeded, int offset, byte[] value) {
+        super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded, offset, value);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("configuuid", DESCRIPTOR_CONFIG_UUID.toString());
+        params.putString("descriptor", descriptor.getUuid().toString());
+
+        params.putString("enable notification", BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE.toString());
+        params.putString("enable indication", BluetoothGattDescriptor.ENABLE_INDICATION_VALUE.toString());
+        params.putString("disable notification", BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE.toString());
+        params.putString("value", value.toString());
+        sendEvent("onDescriptorWriteRequest", params);
+
+        if(descriptor.getUuid().equals(DESCRIPTOR_CONFIG_UUID)) {
+
+          String centralUUID = device.toString();
+          String serviceUUID = descriptor.getCharacteristic().getService().getUuid().toString();
+          String characteristicUUID = descriptor.getCharacteristic().getUuid().toString();
+
+          WritableMap subscriber = Arguments.createMap();
+          subscriber.putString("centralUUID", centralUUID);
+          subscriber.putString("serviceUUID", removeBaseUUID(serviceUUID));
+          subscriber.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
+
+          if (Arrays.equals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE, value)) {
+            mCentral = device;
+            sendEvent("didSubscribeToCharacteristic", subscriber);
+          }
+
+          if (Arrays.equals(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE, value)) {
+            sendEvent("didUnsubscribeFromCharacteristic", subscriber);
+          }
+
+          if (responseNeeded) {
+            mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null);
+          }
+        } else {
+
+          if (responseNeeded) {
+            mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null);
+          }
+        }
+
+      }
+
+      @Override
+      public void onExecuteWrite(BluetoothDevice device, int requestId, boolean execute) {
+        Log.d("GattServer", "Our gatt server on execute write.");
+        super.onExecuteWrite(device, requestId, execute);
+
+        WritableMap params = Arguments.createMap();
+        params.putString("name", "dooley-doo");
+        sendEvent("onExecuteWrite", params);
+      }
+    };
+
   }
 
   public Integer init() {
-    if (null == this.mManager) {
-      this.mManager = (BluetoothManager) this.mContext.getSystemService(Context.BLUETOOTH_SERVICE);
-    }
-
-    if (null == this.mManager) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
       return -1;
     }
 
-    if (false == this.mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
+    if (null == this.mContext.getSystemService(Context.BLUETOOTH_SERVICE)) {
       return -2;
+    }
+
+    if (false == this.mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
+      return -3;
+    }
+
+    if (null == this.mManager) {
+      this.mManager = (BluetoothManager) this.mContext.getSystemService(Context.BLUETOOTH_SERVICE);
     }
 
     if (null == this.mAdapter) {
       this.mAdapter = this.mManager.getAdapter();
     }
 
+    if (null == this.mAdapter) {
+      return -4;
+    }
+
     if (false == this.mAdapter.isMultipleAdvertisementSupported()){
-      return -3;
+      return -5;
     }
 
     this.mConnectionMtu = 23;
@@ -146,6 +368,11 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
   @ReactMethod
   void start(Callback callback) {
+    if(this.init() != 0) {
+      callback.invoke(false);
+      return;
+    }
+
     callback.invoke(true);
   }
 
@@ -185,6 +412,11 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
   @ReactMethod
   void stopAdvertising(Callback callback) {
+    if(this.mLeAdvertiser == null) {
+      callback.invoke(false);
+      return;
+    }
+    
     this.mLeAdvertiser.stopAdvertising(this.mAdvertiseCallback);
     callback.invoke(true);
   }
@@ -308,212 +540,4 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
     this.mGattServer.addService(this.mGattService);
     callback.invoke(serviceUUID);
   }
-
-  private final AdvertiseCallback mAdvertiseCallback = new AdvertiseCallback() {
-    @Override
-    public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-      super.onStartSuccess(settingsInEffect);
-    }
- 
-    @Override
-    public void onStartFailure(int errorCode) {
-      super.onStartFailure(errorCode);
-    }
-  };
-
-  private final BluetoothGattServerCallback mGattServerCallback = new BluetoothGattServerCallback() {
-    @Override
-    public void onConnectionStateChange(BluetoothDevice device, int status, int newState) {
-      Log.d("GattServer", "Our gatt server connection state changed, new state ");
-      Log.d("GattServer", Integer.toString(newState));
-      super.onConnectionStateChange(device, status, newState);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("name", "dooley-doo");
-      sendEvent("onConnectionStateChange", params);
-    }
-
-    @Override
-    public void onServiceAdded(int status, BluetoothGattService service) {
-      Log.d("GattServer", "Our gatt server service was added.");
-      super.onServiceAdded(status, service);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("name", "dooley-doo");
-      sendEvent("onServiceAdded", params);
-    }
-
-    @Override
-    public void onMtuChanged(BluetoothDevice device, int mtu) {
-      super.onMtuChanged(device, mtu);
-
-      WritableMap params = Arguments.createMap();
-      params.putInt("mtu", mtu);
-      sendEvent("onMtuChanged", params);
-
-      mConnectionMtu = mtu;
-    }
-
-    @Override
-    public void onCharacteristicReadRequest(BluetoothDevice device, int requestId, int offset, BluetoothGattCharacteristic characteristic) {
-      Log.d("GattServer", "Our gatt characteristic was read.");
-      super.onCharacteristicReadRequest(device, requestId, offset, characteristic);
-      mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, characteristic.getValue());
-
-      WritableMap params = Arguments.createMap();
-      params.putString("name", "dooley-doo");
-      sendEvent("onCharacteristicReadRequest", params);
-    }
-
-    @Override
-    public void onCharacteristicWriteRequest(BluetoothDevice device, int requestId, BluetoothGattCharacteristic characteristic, boolean preparedWrite, boolean responseNeeded, int offset, byte[] value) {
-      super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("characteristic", mSendCharacteristicUUID);
-      sendEvent("onCharacteristicWriteRequest", params);
-
-      // if write is made on sendcharacteristic (= means it is a confirmation that the send is completed)
-      if(mSendCharacteristicUUID != null && mSendCharacteristicUUID.equals(characteristic.getUuid().toString()) ) {
-        if(mDidFinishSendCB != null) {
-          mDidFinishSendCB.invoke();
-          mDidFinishSendCB = null;
-        }
-      }
-
-      // if write is made on receivecharacteristic (= means it is a write we are waiting for)
-      if(mReceiveCharacteristicUUID != null && mReceiveCharacteristicUUID.equals(characteristic.getUuid().toString()) ) {
-        String centralUUID = device.toString();
-        String serviceUUID = characteristic.getService().getUuid().toString();
-        String characteristicUUID = characteristic.getUuid().toString();
-
-        if(mFinalBytes == 0) {
-          mFinalBytes = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN).getInt();
-          mReceivedData = ByteBuffer.allocate(mFinalBytes);
-
-          WritableMap retObject = Arguments.createMap();
-          retObject.putString("centralUUID", centralUUID);
-          retObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
-          retObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
-          retObject.putInt("mFinalBytes", mFinalBytes);
-
-          sendEvent("transferStarted", retObject);
-        }
-        else {
-          mReceivedData.put(value);
-          mReceivedBytes += value.length;
-        }
-
-        WritableMap progressRetObject = Arguments.createMap();
-        progressRetObject.putString("centralUUID", centralUUID);
-        progressRetObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
-        progressRetObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
-        progressRetObject.putInt("receivedBytes", mReceivedBytes);
-        progressRetObject.putInt("finalBytes", mFinalBytes);
-
-        sendEvent("transferProgress", progressRetObject);
-
-        if(mReceivedBytes == mFinalBytes) {
-          String stringFromData = new String( mReceivedData.array(), Charset.forName("UTF-8") );
-
-          WritableMap doneRetObject = Arguments.createMap();
-          doneRetObject.putString("centralUUID", centralUUID);
-          doneRetObject.putString("serviceUUID", removeBaseUUID(serviceUUID));
-          doneRetObject.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
-          doneRetObject.putInt("receivedBytes", mReceivedBytes);
-          doneRetObject.putInt("finalBytes", mFinalBytes);
-          doneRetObject.putString("value", stringFromData);
-
-          sendEvent("transferDone", doneRetObject);
-
-          mFinalBytes = 0;
-          mReceivedData = null;
-          mReceivedBytes = 0;
-        }
-      }
-
-      if (responseNeeded) {
-        mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null);
-      }
-    }
-
-    @Override
-    public void onNotificationSent(BluetoothDevice device, int status) {
-      Log.d("GattServer", "onNotificationSent");
-      super.onNotificationSent(device, status);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("name", "dooley-doo");
-      sendEvent("onNotificationSent", params);
-    }
-
-    @Override
-    public void onDescriptorReadRequest(BluetoothDevice device, int requestId, int offset, BluetoothGattDescriptor descriptor) {
-      Log.d("GattServer", "Our gatt server descriptor was read.");
-      super.onDescriptorReadRequest(device, requestId, offset, descriptor);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("name", "dooley-doo");
-      sendEvent("onDescriptorReadRequest", params);
-    }
-
-    @Override
-    public void onDescriptorWriteRequest(BluetoothDevice device, int requestId, BluetoothGattDescriptor descriptor, boolean preparedWrite, boolean responseNeeded, int offset, byte[] value) {
-      super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded, offset, value);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("configuuid", DESCRIPTOR_CONFIG_UUID.toString());
-      params.putString("descriptor", descriptor.getUuid().toString());
-
-      params.putString("enable notification", BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE.toString());
-      params.putString("enable indication", BluetoothGattDescriptor.ENABLE_INDICATION_VALUE.toString());
-      params.putString("disable notification", BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE.toString());
-      params.putString("value", value.toString());
-      sendEvent("onDescriptorWriteRequest", params);
-
-      if(descriptor.getUuid().equals(DESCRIPTOR_CONFIG_UUID)) {
-
-        String centralUUID = device.toString();
-        String serviceUUID = descriptor.getCharacteristic().getService().getUuid().toString();
-        String characteristicUUID = descriptor.getCharacteristic().getUuid().toString();
-
-        WritableMap subscriber = Arguments.createMap();
-        subscriber.putString("centralUUID", centralUUID);
-        subscriber.putString("serviceUUID", removeBaseUUID(serviceUUID));
-        subscriber.putString("characteristicUUID", removeBaseUUID(characteristicUUID));
-
-        if (Arrays.equals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE, value)) {
-          mCentral = device;
-          sendEvent("didSubscribeToCharacteristic", subscriber);
-        }
-
-        if (Arrays.equals(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE, value)) {
-          sendEvent("didUnsubscribeFromCharacteristic", subscriber);
-        }
-
-        if (responseNeeded) {
-          mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null);
-        }
-      } else {
-
-        if (responseNeeded) {
-          mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null);
-        }
-      }
-
-    }
-
-    @Override
-    public void onExecuteWrite(BluetoothDevice device, int requestId, boolean execute) {
-      Log.d("GattServer", "Our gatt server on execute write.");
-      super.onExecuteWrite(device, requestId, execute);
-
-      WritableMap params = Arguments.createMap();
-      params.putString("name", "dooley-doo");
-      sendEvent("onExecuteWrite", params);
-    }
-
-  };
-
-
 }
