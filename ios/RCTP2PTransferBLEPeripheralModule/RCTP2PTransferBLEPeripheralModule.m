@@ -38,7 +38,7 @@ RCT_EXPORT_MODULE();
 RCT_EXPORT_METHOD(start:(nonnull RCTResponseSenderBlock)callback)
 {
   if(_manager) {
-    callback(@[@NO]);
+    callback(@[@true]);
     return ;
   }
 
@@ -252,7 +252,7 @@ RCT_EXPORT_METHOD(stopAdvertising: (nonnull RCTResponseSenderBlock)callback)
 
     if (callback) {
       [_callbacks removeObjectForKey:@"startCB"];
-      callback(@[@YES]);
+      callback(@[@true]);
     }
   }
   [self sendEventWithName:@"didUpdateState" body:[self NSStringForCBManagerState:[manager state]]];
