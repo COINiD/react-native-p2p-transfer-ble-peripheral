@@ -10,30 +10,43 @@ class BLEPeripheral extends EventEmitter {
     super();
   }
 
+  isSupported = () => {
+    return new Promise((resolve, reject) => {
+      blePeripheralModule.isSupported(isSupported => {
+        resolve(isSupported);
+      });
+    });
+  }
+
   publish = (serviceUUID, characteristicUUID, localName) => {
     return new Promise((resolve, reject) => {
-      blePeripheralModule.start((started) => {
-        if(!started) {
-          console.log("could not start bluetooth");
-          return reject("could not start bluetooth");
+      this.isSupported().then((supported) => {
+        if(!supported) {
+          return reject("BLE is not supported on your device.");
         }
 
-        this.unpublish().then(() => {
-          console.log("unpublish...");
-          blePeripheralModule.addService(serviceUUID, (data) => {
-            this.addedServiceUUID = serviceUUID;
-            console.log("addService...", data);
+        blePeripheralModule.start((started) => {
+          if(!started) {
+            return reject("Could not start... Make sure bluetooth is enabled and try again."+started);
+          }
 
-            blePeripheralModule.addCharacteristic(serviceUUID, characteristicUUID, (data) => {
-              this.addedCharacteristicUUID = characteristicUUID;
-              console.log("addCharacteristic...", data);
+          this.unpublish().then(() => {
+            console.log("unpublish...");
+            blePeripheralModule.addService(serviceUUID, (data) => {
+              this.addedServiceUUID = serviceUUID;
+              console.log("addService...", data);
 
-              blePeripheralModule.publishService(serviceUUID, (data) => {
-                console.log("publishedService...", data);
+              blePeripheralModule.addCharacteristic(serviceUUID, characteristicUUID, (data) => {
+                this.addedCharacteristicUUID = characteristicUUID;
+                console.log("addCharacteristic...", data);
 
-                blePeripheralModule.startAdvertising(localName, (data) => {
-                  console.log("startAdvertising...", data);
-                  resolve(data);
+                blePeripheralModule.publishService(serviceUUID, (data) => {
+                  console.log("publishedService...", data);
+
+                  blePeripheralModule.startAdvertising(localName, (data) => {
+                    console.log("startAdvertising...", data);
+                    resolve(data);
+                  });
                 });
               });
             });

@@ -34,16 +34,41 @@ RCT_EXPORT_MODULE();
 }
 
 /* Exported Methods */
+RCT_EXPORT_METHOD(isEnabled:(nonnull RCTResponseSenderBlock)callback)
+{
+  if([_manager state] == CBManagerStatePoweredOn) {
+    callback(@[@true]);
+  }
+  else {
+    callback(@[@false]);
+  }
+}
+
+RCT_EXPORT_METHOD(isSupported:(nonnull RCTResponseSenderBlock)callback)
+{
+  if ([CLLocationManager isMonitoringAvailableForClass:[CLBeaconRegion class]]){
+    callback(@[@true]);
+  }
+  else {
+    callback(@[@false]);
+  }
+}
 
 RCT_EXPORT_METHOD(start:(nonnull RCTResponseSenderBlock)callback)
 {
   if(_manager) {
-    callback(@[@true]);
-    return ;
+    if([_manager state] == CBManagerStatePoweredOn) {
+      callback(@[@true]);
+      return;
+    }
+    else {
+      callback(@[@false]);
+      return ;
+    }
   }
-
-  [_callbacks setObject:callback forKey:@"startCB"];
+    
   _manager = [[CBPeripheralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()];
+  [_callbacks setObject:callback forKey:@"startCB"];
 }
 
 RCT_EXPORT_METHOD(publishService:(NSString *)serviceUUID callback:(nonnull RCTResponseSenderBlock)callback)
@@ -247,14 +272,21 @@ RCT_EXPORT_METHOD(stopAdvertising: (nonnull RCTResponseSenderBlock)callback)
 }
 
 - (void)peripheralManagerDidUpdateState:(CBPeripheralManager *) manager {
-  if([manager state] == CBManagerStatePoweredOn) {
-    RCTResponseSenderBlock callback = [_callbacks objectForKey:@"startCB"];
+  RCTResponseSenderBlock callback = [_callbacks objectForKey:@"startCB"];
 
+  if([manager state] == CBManagerStatePoweredOn) {
     if (callback) {
       [_callbacks removeObjectForKey:@"startCB"];
       callback(@[@true]);
     }
   }
+  else {
+    if (callback) {
+      [_callbacks removeObjectForKey:@"startCB"];
+      callback(@[@false]);
+    }
+  }
+
   [self sendEventWithName:@"didUpdateState" body:[self NSStringForCBManagerState:[manager state]]];
 }
 

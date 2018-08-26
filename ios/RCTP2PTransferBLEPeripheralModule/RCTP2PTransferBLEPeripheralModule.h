@@ -8,6 +8,7 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 #import <CoreBluetooth/CoreBluetooth.h>
+#import <CoreLocation/CoreLocation.h>
 
 @interface RCTP2PTransferBLEPeripheralModule : RCTEventEmitter <RCTBridgeModule, CBPeripheralManagerDelegate>{
     CBPeripheralManager *_manager;

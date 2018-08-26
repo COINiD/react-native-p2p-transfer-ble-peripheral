@@ -51,10 +51,11 @@ import java.nio.ByteOrder;
 import java.nio.charset.Charset;
 
 import android.os.Build;
-
+import android.content.Intent;
 
 public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModule {
 
+  private static final int REQUEST_ENABLE_BT = 1;
   private ReactApplicationContext mContext;
 
   private BluetoothManager mManager;
@@ -80,9 +81,6 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   private BluetoothGattServerCallback mGattServerCallback;
   private AdvertiseCallback mAdvertiseCallback;
   
-/*
-*/
-
   public RCTP2PTransferBLEPeripheralModule(ReactApplicationContext reactContext) {
     super(reactContext);
     this.mContext = reactContext;
@@ -102,7 +100,6 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
         super.onStartFailure(errorCode);
       }
     };
-
 
     this.mGattServerCallback = new BluetoothGattServerCallback() {
       @Override
@@ -296,10 +293,9 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
         sendEvent("onExecuteWrite", params);
       }
     };
-
   }
 
-  public Integer init() {
+  public Integer setupModule() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
       return -1;
     }
@@ -324,8 +320,16 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
       return -4;
     }
 
-    if (false == this.mAdapter.isMultipleAdvertisementSupported()){
+    if (true == this.mAdapter.isEnabled() && false == this.mAdapter.isMultipleAdvertisementSupported()){
       return -5;
+    }
+
+    return 0;
+  }
+
+  public Integer init() {
+    if(this.setupModule() != 0) {
+      return -1;
     }
 
     if(this.mGattServerCallback == null) {
@@ -340,6 +344,15 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
     this.mReceivedBytes = 0;
 
     return 0;
+  }
+
+  @ReactMethod
+  void isSupported(Callback callback) {
+    if(this.setupModule() != 0) {
+      callback.invoke(this.setupModule());
+      return;
+    }
+    callback.invoke(true);
   }
 
   @Override
@@ -358,20 +371,15 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   }
 
   @ReactMethod
-  public void isBluetoothEnabled(final Promise promise) {
-    if (null == this.mAdapter) {
-      promise.resolve(false);
-      return;
-    }
-  
-    promise.resolve(this.mAdapter.isEnabled());
-  }
-
-  @ReactMethod
   void start(Callback callback) {
     if(this.init() != 0) {
       callback.invoke(false);
       return;
+    }
+
+    if (!this.mAdapter.isEnabled()) {
+      callback.invoke(false);
+      return ;
     }
 
     callback.invoke(true);
