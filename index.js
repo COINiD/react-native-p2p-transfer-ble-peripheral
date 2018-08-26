@@ -27,7 +27,7 @@ class BLEPeripheral extends EventEmitter {
 
         blePeripheralModule.start((started) => {
           if(!started) {
-            return reject("Could not start... Make sure bluetooth is enabled and try again."+started);
+            return reject("Could not start... Make sure bluetooth is enabled and try again.");
           }
 
           this.unpublish().then(() => {
