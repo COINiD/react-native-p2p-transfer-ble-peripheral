@@ -24,8 +24,8 @@ RCT_EXPORT_MODULE();
     _pausedTransfers = [NSMutableArray new];
     _subscribedCentrals = [NSMutableDictionary dictionary];
     
-    NSDictionary *options = @{CBCentralManagerOptionShowPowerAlertKey: @NO};
-    _manager = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:options];
+    NSDictionary *options = @{CBPeripheralManagerOptionShowPowerAlertKey: @NO};
+    _manager = [[CBPeripheralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:options];
   }
   
   return self;
