@@ -349,7 +349,7 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
   @ReactMethod
   void isSupported(Callback callback) {
     if(this.setupModule() != 0) {
-      callback.invoke(this.setupModule());
+      callback.invoke(false);
       return;
     }
     callback.invoke(true);
