@@ -23,6 +23,9 @@ RCT_EXPORT_MODULE();
     _publishedServices = [NSMutableDictionary dictionary];
     _pausedTransfers = [NSMutableArray new];
     _subscribedCentrals = [NSMutableDictionary dictionary];
+    
+    NSDictionary *options = @{CBCentralManagerOptionShowPowerAlertKey: @NO};
+    _manager = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:options];
   }
   
   return self;
@@ -67,7 +70,6 @@ RCT_EXPORT_METHOD(start:(nonnull RCTResponseSenderBlock)callback)
     }
   }
     
-  _manager = [[CBPeripheralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()];
   [_callbacks setObject:callback forKey:@"startCB"];
 }
 
