@@ -120,11 +120,13 @@ class BLEPeripheral extends EventEmitter {
 
         this.emit('sendingStarted');
         blePeripheralModule.updateValue(value, subscriber.centralUUID, serviceUUID, characteristicUUID, () => {
-          this.unpublish()
-          .then(() => {
-            this.emit('sendingDone');
-            return resolve();
-          });
+          setTimeout(() => {
+            this.unpublish()
+            .then(() => {
+              this.emit('sendingDone');
+              return resolve();
+            });
+          }, 1000)
         });
       });
 
