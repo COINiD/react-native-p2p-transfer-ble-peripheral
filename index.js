@@ -29,7 +29,6 @@ class BLEPeripheral extends EventEmitter {
           if(!started) {
             return reject("Unable to start. Make sure bluetooth is enabled.");
           }
-
           this.unpublish().then(() => {
             console.log("unpublish...");
             blePeripheralModule.addService(serviceUUID, (data) => {
@@ -67,9 +66,10 @@ class BLEPeripheral extends EventEmitter {
 
   unpublish = () => {
     return new Promise((resolve, reject) => { 
-      this.stopAdvertising().then(() => {
+      this.stopAdvertising()
+      .then(() => {
 
-        console.log("stopping advertising...");
+        console.log("unpublishing...");
 
         if(this.addedServiceUUID === undefined) {
           console.log('already unpublished');
@@ -111,21 +111,19 @@ class BLEPeripheral extends EventEmitter {
         blePeripheralEmitter.removeAllListeners('sendingProgress');
         blePeripheralEmitter.removeAllListeners('didSubscribeToCharacteristic');
 
-        this.stopAdvertising().then(() => {
-          console.log('updateValue...');
+      
+        console.log('updateValue...');
 
-          blePeripheralEmitter.addListener('sendingProgress', (data) => {
-            this.emit('sendingProgress', data);
-          });
+        blePeripheralEmitter.addListener('sendingProgress', (data) => {
+          this.emit('sendingProgress', data);
+        });
 
-          this.emit('sendingStarted');
-          blePeripheralModule.updateValue(value, subscriber.centralUUID, serviceUUID, characteristicUUID, () => {
-            this.unpublish()
-            .then(() => {
-
-              this.emit('sendingDone');
-              return resolve();
-            });
+        this.emit('sendingStarted');
+        blePeripheralModule.updateValue(value, subscriber.centralUUID, serviceUUID, characteristicUUID, () => {
+          this.unpublish()
+          .then(() => {
+            this.emit('sendingDone');
+            return resolve();
           });
         });
       });
@@ -155,9 +153,7 @@ class BLEPeripheral extends EventEmitter {
       
       blePeripheralEmitter.addListener('transferStarted', (data) => {
         blePeripheralEmitter.removeAllListeners('transferStarted');
-
         this.emit('receivingStarted', data);
-        this.stopAdvertising();
       });
 
       blePeripheralEmitter.addListener('transferProgress', (data) => {
@@ -167,8 +163,6 @@ class BLEPeripheral extends EventEmitter {
       blePeripheralEmitter.addListener('transferDone', (data) => {
         blePeripheralEmitter.removeAllListeners('transferDone');
         blePeripheralEmitter.removeAllListeners('transferProgress');
-
-        console.log("trying to unpublish");
 
         this.unpublish().then(() => {
           this.emit('receivingDone', data);
