@@ -400,7 +400,7 @@ public class RCTP2PTransferBLEPeripheralModule extends ReactContextBaseJavaModul
 
   @ReactMethod
   void startAdvertising(String name, final Callback callback) {
-    this.mAdapter.setName(name);
+    //this.mAdapter.setName(name);
 
     AdvertiseSettings settings = (new AdvertiseSettings.Builder())
       .setConnectable(true)
